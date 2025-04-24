@@ -25,6 +25,7 @@ public:
     void clear();
     void refresh();
     
+    // Drawing methods
     void drawSnake(const std::deque<Point>& body);
     void drawFood(const Point& position);
     void drawPortal(const Point& position);
@@ -33,13 +34,23 @@ public:
     void drawHardcoreMode();
     void drawGameOver(int finalScore);
     void drawStartScreen();
-    void drawConfigScreen();
+    void drawConfigScreen(const GameConfig& config);
+    void drawString(int x, int y, const std::string& str);
+    void drawChar(int x, int y, char c);
+    void drawBox(int x, int y, int width, int height);
+    void drawCenteredText(int y, const std::string& text);
     
+    // Animation methods
     void animateFoodEaten(const Point& position);
-    void animateSnakeDeath(const std::vector<Point>& snakeBody);
+    void animateSnakeDeath(const std::deque<Point>& snakeBody);
     void animateScoreCountUp(int finalScore, int startScore = 0);
-    void drawHighScoreTable(const std::vector<HighScoreEntry>& highScores);
+    void animateBounceText(int y, const std::string& text, int duration);
+    void animateWaveText(int y, const std::string& text, int duration);
+    
+    // Mode settings
     void setMinimalMode(bool enabled) { minimalMode = enabled; }
+    
+    void drawHighScoreTable(const std::vector<HighScoreEntry>& highScores);
     
 private:
     GameConfig config;
@@ -51,22 +62,11 @@ private:
     
     void setCursorPosition(int x, int y);
     void setTextColor(int color);
-    void drawChar(int x, int y, char c);
-    void drawString(int x, int y, const std::string& str);
-    void drawBox(int x, int y, int width, int height);
-    void drawCenteredText(int y, const std::string& text);
-    
-    void clearScreen();
     void drawBorder();
     void drawSnake(const Snake& snake);
     void drawFood(const Food& food);
-    void drawScore(int score, int highScore);
     void drawControls();
     void centerText(const std::string& text, int y);
-    
-    // Animation helpers
-    void animateBounceText(int y, const std::string& text, int duration);
-    void animateWaveText(int y, const std::string& text, int duration);
 };
 
 } // namespace SnakeGame 

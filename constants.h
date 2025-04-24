@@ -62,6 +62,9 @@ struct GameConfig {
     bool wrapAround;
     bool hardcoreMode;
     bool enableAnimations;
+    bool enableSpecialFood;
+    GameMode mode;
+    Difficulty difficulty;
     
     static GameConfig defaultConfig() {
         return {
@@ -70,7 +73,10 @@ struct GameConfig {
             std::chrono::milliseconds(200),  // initialSpeed
             true,   // wrapAround
             false,  // hardcoreMode
-            true    // enableAnimations
+            true,   // enableAnimations
+            true,   // enableSpecialFood
+            GameMode::CLASSIC,  // mode
+            Difficulty::NORMAL  // difficulty
         };
     }
 };
@@ -81,7 +87,10 @@ enum class GameState {
     CONFIG_SCREEN,
     PLAYING,
     PAUSED,
-    GAME_OVER
+    GAME_OVER,
+    REPLAY_MENU,
+    ACHIEVEMENTS,
+    EXIT
 };
 
 // Input handling
