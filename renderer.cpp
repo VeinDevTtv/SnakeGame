@@ -5,6 +5,7 @@
 #include <windows.h>
 #include <string>
 #include <sstream>
+#include <cmath>
 
 namespace SnakeGame {
 
@@ -193,33 +194,116 @@ void Renderer::drawHardcoreMode() {
     drawString(2, 1, "HARDCORE MODE");
 }
 
-void Renderer::drawGameOver(int finalScore) {
-    clear();
-    setTextColor(FOREGROUND_RED | FOREGROUND_INTENSITY);
-    
-    // Draw ASCII art game over
-    std::vector<std::string> gameOverArt = {
-        "  _____                         ____                 _ ",
-        " / ____|                       / __ \\               | |",
-        "| |  __  __ _ _ __ ___   ___  | |  | |_   _____ _ __| |",
-        "| | |_ |/ _` | '_ ` _ \\ / _ \\ | |  | \\ \\ / / _ \\ '__| |",
-        "| |__| | (_| | | | | | |  __/ | |__| |\\ V /  __/ |  |_|",
-        " \\_____|\\__,_|_| |_| |_|\\___|  \\____/  \\_/ \\___|_|  (_)"
-    };
-    
-    int startY = (config.height - gameOverArt.size()) / 2;
-    for (const auto& line : gameOverArt) {
-        drawCenteredText(startY++, line);
+void Renderer::animateScoreCountUp(int finalScore, int startScore) {
+    if (minimalMode) {
+        drawString(2, 0, "Final Score: " + std::to_string(finalScore));
+        return;
     }
     
-    // Draw final score
-    std::stringstream ss;
-    ss << "Final Score: " << finalScore;
-    drawCenteredText(startY + 2, ss.str());
+    const int duration = 2000; // 2 seconds
+    const int steps = 50;
+    const int stepDelay = duration / steps;
+    
+    for (int i = 0; i <= steps; ++i) {
+        int currentScore = startScore + (finalScore - startScore) * i / steps;
+        std::stringstream ss;
+        ss << "Final Score: " << currentScore;
+        
+        // Alternate between bounce and wave effects
+        if (i % 2 == 0) {
+            animateBounceText(2, ss.str(), stepDelay);
+        } else {
+            animateWaveText(2, ss.str(), stepDelay);
+        }
+    }
+}
+
+void Renderer::animateBounceText(int y, const std::string& text, int duration) {
+    const int maxHeight = 3;
+    const int steps = 10;
+    
+    for (int i = 0; i < steps; ++i) {
+        double progress = static_cast<double>(i) / steps;
+        int offset = static_cast<int>(std::sin(progress * M_PI) * maxHeight);
+        
+        clear();
+        drawString(2, y - offset, text);
+        refresh();
+        std::this_thread::sleep_for(std::chrono::milliseconds(duration / steps));
+    }
+}
+
+void Renderer::animateWaveText(int y, const std::string& text, int duration) {
+    const int steps = 20;
+    const int waveLength = 5;
+    
+    for (int i = 0; i < steps; ++i) {
+        clear();
+        for (size_t j = 0; j < text.length(); ++j) {
+            double wave = std::sin((j + i) * M_PI / waveLength);
+            int offset = static_cast<int>(wave * 2);
+            drawChar(2 + j, y + offset, text[j]);
+        }
+        refresh();
+        std::this_thread::sleep_for(std::chrono::milliseconds(duration / steps));
+    }
+}
+
+void Renderer::drawHighScoreTable(const std::vector<HighScoreEntry>& highScores) {
+    if (minimalMode) {
+        drawString(2, 4, "High Scores:");
+        for (size_t i = 0; i < highScores.size(); ++i) {
+            std::stringstream ss;
+            ss << (i + 1) << ". " << highScores[i].name << " - " << highScores[i].score;
+            drawString(2, 5 + i, ss.str());
+        }
+        return;
+    }
+    
+    // Draw fancy high score table
+    drawBox(2, 4, config.width - 4, highScores.size() + 3);
+    drawString(4, 5, "HIGH SCORES");
+    
+    for (size_t i = 0; i < highScores.size(); ++i) {
+        const auto& entry = highScores[i];
+        std::stringstream ss;
+        ss << std::setw(2) << (i + 1) << ". " 
+           << std::setw(15) << std::left << entry.name << " "
+           << std::setw(5) << std::right << entry.score << " "
+           << std::put_time(std::localtime(&std::chrono::system_clock::to_time_t(entry.date)), "%Y-%m-%d");
+        
+        drawString(4, 6 + i, ss.str());
+    }
+}
+
+void Renderer::drawGameOver(int finalScore) {
+    clear();
+    
+    if (!minimalMode) {
+        setTextColor(FOREGROUND_RED | FOREGROUND_INTENSITY);
+        
+        // Draw ASCII art game over
+        std::vector<std::string> gameOverArt = {
+            "  _____                         ____                 _ ",
+            " / ____|                       / __ \\               | |",
+            "| |  __  __ _ _ __ ___   ___  | |  | |_   _____ _ __| |",
+            "| | |_ |/ _` | '_ ` _ \\ / _ \\ | |  | \\ \\ / / _ \\ '__| |",
+            "| |__| | (_| | | | | | |  __/ | |__| |\\ V /  __/ |  |_|",
+            " \\_____|\\__,_|_| |_| |_|\\___|  \\____/  \\_/ \\___|_|  (_)"
+        };
+        
+        int startY = (config.height - gameOverArt.size()) / 2;
+        for (const auto& line : gameOverArt) {
+            drawCenteredText(startY++, line);
+        }
+    }
+    
+    // Animate score count-up
+    animateScoreCountUp(finalScore);
     
     // Draw continue message
     setTextColor(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
-    drawCenteredText(startY + 4, "Press any key to continue...");
+    drawCenteredText(config.height - 2, "Press any key to continue...");
 }
 
 void Renderer::drawStartScreen() {

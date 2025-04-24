@@ -3,12 +3,19 @@
 #include <string>
 #include <vector>
 #include <chrono>
+#include <deque>
 #include "constants.h"
 #include "snake.h"
 #include "food.h"
 #include "point.h"
 
 namespace SnakeGame {
+
+struct HighScoreEntry {
+    std::string name;
+    int score;
+    std::chrono::system_clock::time_point date;
+};
 
 class Renderer {
 public:
@@ -30,12 +37,16 @@ public:
     
     void animateFoodEaten(const Point& position);
     void animateSnakeDeath(const std::vector<Point>& snakeBody);
+    void animateScoreCountUp(int finalScore, int startScore = 0);
+    void drawHighScoreTable(const std::vector<HighScoreEntry>& highScores);
+    void setMinimalMode(bool enabled) { minimalMode = enabled; }
     
 private:
     GameConfig config;
     std::vector<std::vector<char>> board;
     std::chrono::steady_clock::time_point lastAnimationTime;
     bool isAnimating;
+    bool minimalMode;
     void* consoleHandle;
     
     void setCursorPosition(int x, int y);
@@ -52,6 +63,10 @@ private:
     void drawScore(int score, int highScore);
     void drawControls();
     void centerText(const std::string& text, int y);
+    
+    // Animation helpers
+    void animateBounceText(int y, const std::string& text, int duration);
+    void animateWaveText(int y, const std::string& text, int duration);
 };
 
 } // namespace SnakeGame 

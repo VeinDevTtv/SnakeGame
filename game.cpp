@@ -5,19 +5,66 @@
 #include <iostream>
 #include <random>
 #include <algorithm>
+#include <filesystem>
 
 namespace SnakeGame {
 
 Game::Game()
     : score(0), highScore(0), gameOver(false), paused(false),
-      gameSpeed(std::chrono::milliseconds(200)), hardcoreMode(false) {
+      gameSpeed(std::chrono::milliseconds(200)), hardcoreMode(false),
+      minimalMode(false), portalUseCount(0), currentState(GameState::START_SCREEN) {
     initialize();
 }
 
 void Game::run() {
-    showStartScreen();
+    while (currentState != GameState::EXIT) {
+        switch (currentState) {
+            case GameState::START_SCREEN:
+                showStartScreen();
+                break;
+            case GameState::CONFIG_SCREEN:
+                showConfigScreen();
+                break;
+            case GameState::PLAYING:
+                runGameLoop();
+                break;
+            case GameState::REPLAY_MENU:
+                showReplayMenu();
+                break;
+            case GameState::ACHIEVEMENTS:
+                showAchievements();
+                break;
+        }
+    }
+}
+
+void Game::initialize() {
+    config = GameConfig::defaultConfig();
+    snake = std::make_unique<Snake>(config.width / 2, config.height / 2);
+    food = std::make_unique<Food>(config);
+    renderer = std::make_unique<Renderer>(config);
+    replaySystem = std::make_unique<ReplaySystem>();
+    achievementSystem = std::make_unique<AchievementSystem>();
     
-    while (!gameOver) {
+    loadHighScore();
+    initializePortals();
+    
+    // Set renderer mode
+    renderer->setMinimalMode(minimalMode);
+}
+
+void Game::initializePortals() {
+    // Create two portals at opposite corners
+    portals.clear();
+    portals.push_back({Point(1, 1), Point(config.width - 2, config.height - 2), true});
+    portals.push_back({Point(config.width - 2, config.height - 2), Point(1, 1), true});
+}
+
+void Game::runGameLoop() {
+    gameStartTime = std::chrono::steady_clock::now();
+    startReplayRecording();
+    
+    while (!gameOver && currentState == GameState::PLAYING) {
         handleInput();
         
         auto now = std::chrono::steady_clock::now();
@@ -31,22 +78,13 @@ void Game::run() {
         render();
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
-}
-
-void Game::initialize() {
-    config = GameConfig::defaultConfig();
-    snake = std::make_unique<Snake>(config.width / 2, config.height / 2);
-    food = std::make_unique<Food>(config);
-    renderer = std::make_unique<Renderer>(config);
-    loadHighScore();
-    initializePortals();
-}
-
-void Game::initializePortals() {
-    // Create two portals at opposite corners
-    portals.clear();
-    portals.push_back({Point(1, 1), Point(config.width - 2, config.height - 2), true});
-    portals.push_back({Point(config.width - 2, config.height - 2), Point(1, 1), true});
+    
+    if (gameOver) {
+        stopReplayRecording();
+        updateAchievements();
+        renderer->drawGameOver(score);
+        _getch(); // Wait for key press
+    }
 }
 
 void Game::handleInput() {
@@ -62,7 +100,11 @@ void Game::handleInput() {
             case 'd':
             case 'D':
                 if (!paused) {
-                    snake->move(DirectionManager::fromChar(key), config);
+                    Direction dir = DirectionManager::fromChar(key);
+                    snake->move(dir, config);
+                    if (replaySystem->isRecording()) {
+                        replaySystem->recordMove(dir);
+                    }
                 }
                 break;
             case 'p':
@@ -70,7 +112,11 @@ void Game::handleInput() {
                 paused = !paused;
                 break;
             case 27: // ESC
-                gameOver = true;
+                if (paused) {
+                    currentState = GameState::START_SCREEN;
+                } else {
+                    paused = true;
+                }
                 break;
         }
     }
@@ -79,11 +125,6 @@ void Game::handleInput() {
 void Game::update() {
     if (gameOver || paused) return;
     
-    auto now = std::chrono::steady_clock::now();
-    if (now - lastUpdate < gameSpeed) return;
-    
-    lastUpdate = now;
-    
     snake->move(snake->getCurrentDirection(), config);
     checkCollisions();
     checkPortalCollisions();
@@ -91,15 +132,23 @@ void Game::update() {
     if (snake->getHead() == food->getPosition()) {
         handleFoodEaten();
     }
+    
+    // Record game state for replay
+    if (replaySystem->isRecording()) {
+        replaySystem->recordState(snake->getBody(), food->getPosition(), 
+                                score, snake->getCurrentCombo());
+    }
 }
 
 void Game::render() {
     renderer->clear();
     
-    // Draw portals
-    for (const auto& portal : portals) {
-        if (portal.active) {
-            renderer->drawPortal(portal.position);
+    if (!minimalMode) {
+        // Draw portals
+        for (const auto& portal : portals) {
+            if (portal.active) {
+                renderer->drawPortal(portal.position);
+            }
         }
     }
     
@@ -256,6 +305,129 @@ void Game::updateHardcoreSpeed() {
             gameSpeed - std::chrono::milliseconds(10)
         );
     }
+}
+
+void Game::startReplayRecording() {
+    replaySystem->startRecording(playerName);
+}
+
+void Game::stopReplayRecording() {
+    if (replaySystem->isRecording()) {
+        replaySystem->stopRecording();
+        
+        // Save replay if score is high enough
+        if (score > 100) {
+            std::string filename = "replays/replay_" + 
+                std::to_string(std::chrono::system_clock::to_time_t(
+                    std::chrono::system_clock::now())) + ".replay";
+            replaySystem->saveReplay(filename);
+        }
+    }
+}
+
+void Game::showReplayMenu() {
+    renderer->clear();
+    renderer->drawString(2, 2, "Replay Menu");
+    
+    // List available replays
+    std::vector<std::string> replays;
+    for (const auto& entry : std::filesystem::directory_iterator("replays")) {
+        if (entry.path().extension() == ".replay") {
+            replays.push_back(entry.path().string());
+        }
+    }
+    
+    int selected = 0;
+    while (true) {
+        renderer->clear();
+        renderer->drawString(2, 2, "Select a replay to watch:");
+        
+        for (size_t i = 0; i < replays.size(); ++i) {
+            std::string prefix = (i == selected) ? "> " : "  ";
+            renderer->drawString(2, 4 + i, prefix + replays[i]);
+        }
+        
+        char key = _getch();
+        switch (key) {
+            case 'w':
+            case 'W':
+                selected = (selected > 0) ? selected - 1 : replays.size() - 1;
+                break;
+            case 's':
+            case 'S':
+                selected = (selected + 1) % replays.size();
+                break;
+            case 13: // Enter
+                if (!replays.empty()) {
+                    playReplay(replays[selected]);
+                }
+                break;
+            case 27: // ESC
+                currentState = GameState::START_SCREEN;
+                return;
+        }
+    }
+}
+
+void Game::playReplay(const std::string& filename) {
+    if (!replaySystem->loadReplay(filename)) {
+        renderer->drawString(2, 2, "Failed to load replay!");
+        _getch();
+        return;
+    }
+    
+    const auto& replay = replaySystem->getCurrentReplay();
+    size_t currentState = 0;
+    
+    while (currentState < replay.states.size()) {
+        const auto& state = replay.states[currentState];
+        
+        renderer->clear();
+        renderer->drawSnake(state.snakeBody);
+        renderer->drawFood(state.foodPosition);
+        renderer->drawScore(state.score, highScore);
+        renderer->drawCombo(state.combo);
+        renderer->refresh();
+        
+        if (_kbhit()) {
+            char key = _getch();
+            if (key == 27) break; // ESC
+        }
+        
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        currentState++;
+    }
+}
+
+void Game::updateAchievements() {
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - gameStartTime);
+    
+    achievementSystem->update(score, snake->getCurrentCombo(), 
+                            snake->getLength(), duration);
+}
+
+void Game::showAchievements() {
+    renderer->clear();
+    renderer->drawString(2, 2, "Achievements");
+    
+    const auto& achievements = achievementSystem->getAchievements();
+    for (size_t i = 0; i < achievements.size(); ++i) {
+        const auto& achievement = achievements[i];
+        std::string status = achievement.unlocked ? "[X]" : "[ ]";
+        renderer->drawString(2, 4 + i, status + " " + achievement.name);
+        renderer->drawString(6, 4 + i, achievement.description);
+    }
+    
+    renderer->drawString(2, 4 + achievements.size() + 1, 
+                        "Press any key to return to menu");
+    _getch();
+    currentState = GameState::START_SCREEN;
+}
+
+void Game::toggleMinimalMode() {
+    minimalMode = !minimalMode;
+    renderer->setMinimalMode(minimalMode);
 }
 
 } // namespace SnakeGame 
