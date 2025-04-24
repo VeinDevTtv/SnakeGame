@@ -5,38 +5,87 @@
 namespace SnakeGame {
 
 Snake::Snake(int startX, int startY, int initialLength)
-    : currentDirection(Direction::RIGHT), isReversed(false) {
+    : currentDirection(Direction::RIGHT)
+    , isReversed(false)
+    , isInPortal(false)
+    , comboState{0, std::chrono::steady_clock::now()} {
     // Initialize snake body
     for (int i = 0; i < initialLength; ++i) {
-        body.push_back(Point(startX - i, startY));
+        body.push_front(Point(startX - i, startY));
     }
 }
 
 void Snake::move(Direction dir, const GameConfig& config) {
-    if (dir == Direction::NONE) return;
+    if (isInPortal) return; // Don't move while teleporting
     
-    // Don't allow 180-degree turns
-    if (DirectionManager::isOpposite(dir, currentDirection)) return;
+    Point newHead = getHead();
     
-    currentDirection = dir;
-    Point directionVector = DirectionManager::getDirectionVector(dir);
-    if (isReversed) {
-        directionVector = Point(-directionVector.x, -directionVector.y);
+    // Update direction
+    if (!isReversed) {
+        currentDirection = dir;
+    } else {
+        // Reverse the direction if snake is reversed
+        switch (dir) {
+            case Direction::UP: currentDirection = Direction::DOWN; break;
+            case Direction::DOWN: currentDirection = Direction::UP; break;
+            case Direction::LEFT: currentDirection = Direction::RIGHT; break;
+            case Direction::RIGHT: currentDirection = Direction::LEFT; break;
+        }
     }
     
-    Point newHead = body.front() + directionVector;
-    
-    // Handle wrap-around mode
-    if (config.mode == GameMode::WRAP_AROUND) {
-        newHead = newHead.wrap(config.width, config.height);
+    // Calculate new head position
+    switch (currentDirection) {
+        case Direction::UP: newHead.y--; break;
+        case Direction::DOWN: newHead.y++; break;
+        case Direction::LEFT: newHead.x--; break;
+        case Direction::RIGHT: newHead.x++; break;
     }
     
     updatePosition(newHead, config);
 }
 
 void Snake::grow() {
-    // Add new segment at the tail position
+    // Add new segment at the end
     body.push_back(body.back());
+    
+    // Update combo
+    updateCombo();
+}
+
+void Snake::updateCombo() {
+    auto now = std::chrono::steady_clock::now();
+    auto timeSinceLastFood = std::chrono::duration_cast<std::chrono::milliseconds>(
+        now - comboState.lastFoodTime).count();
+    
+    if (timeSinceLastFood < ComboState::COMBO_WINDOW_MS) {
+        comboState.currentCombo++;
+    } else {
+        comboState.currentCombo = 1;
+    }
+    
+    comboState.lastFoodTime = now;
+}
+
+int Snake::getComboMultiplier() const {
+    return std::min(comboState.currentCombo, 5); // Cap at 5x multiplier
+}
+
+void Snake::teleportTo(const Point& newPosition) {
+    isInPortal = true;
+    body.front() = newPosition;
+}
+
+void Snake::updatePosition(const Point& newHead, const GameConfig& config) {
+    // Handle wrapping around the screen
+    if (config.wrapAround) {
+        if (newHead.x < 0) newHead.x = config.width - 1;
+        if (newHead.x >= config.width) newHead.x = 0;
+        if (newHead.y < 0) newHead.y = config.height - 1;
+        if (newHead.y >= config.height) newHead.y = 0;
+    }
+    
+    body.push_front(newHead);
+    body.pop_back();
 }
 
 bool Snake::checkCollision(const Point& point) const {
@@ -44,24 +93,16 @@ bool Snake::checkCollision(const Point& point) const {
 }
 
 bool Snake::checkSelfCollision() const {
-    const Point& head = body.front();
+    auto head = body.front();
     return std::find(body.begin() + 1, body.end(), head) != body.end();
 }
 
 bool Snake::checkWallCollision(const GameConfig& config) const {
-    if (config.mode == GameMode::WRAP_AROUND) return false;
+    if (config.wrapAround) return false;
     
-    const Point& head = body.front();
-    return head.x <= 0 || head.x >= config.width - 1 ||
-           head.y <= 0 || head.y >= config.height - 1;
-}
-
-void Snake::updatePosition(const Point& newHead, const GameConfig& config) {
-    // Move body
-    for (size_t i = body.size() - 1; i > 0; --i) {
-        body[i] = body[i - 1];
-    }
-    body[0] = newHead;
+    auto head = body.front();
+    return head.x < 0 || head.x >= config.width || 
+           head.y < 0 || head.y >= config.height;
 }
 
 } // namespace SnakeGame 

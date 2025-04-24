@@ -2,12 +2,19 @@
 
 #include <memory>
 #include <chrono>
+#include <vector>
 #include "constants.h"
 #include "snake.h"
 #include "food.h"
 #include "renderer.h"
 
 namespace SnakeGame {
+
+struct Portal {
+    Point position;
+    Point destination;
+    bool active;
+};
 
 class Game {
 public:
@@ -27,6 +34,10 @@ private:
     std::chrono::milliseconds gameSpeed;
     std::chrono::steady_clock::time_point lastUpdate;
     
+    // New features
+    std::vector<Portal> portals;
+    bool hardcoreMode;
+    
     void initialize();
     void handleInput();
     void update();
@@ -40,6 +51,12 @@ private:
     void checkCollisions();
     void handleFoodEaten();
     void updateSpeed();
+    
+    // New methods
+    void initializePortals();
+    void checkPortalCollisions();
+    void toggleHardcoreMode();
+    void updateHardcoreSpeed();
 };
 
 } // namespace SnakeGame 

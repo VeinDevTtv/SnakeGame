@@ -2,12 +2,15 @@
 #include <conio.h>
 #include <fstream>
 #include <thread>
+#include <iostream>
+#include <random>
+#include <algorithm>
 
 namespace SnakeGame {
 
 Game::Game()
     : score(0), highScore(0), gameOver(false), paused(false),
-      gameSpeed(INITIAL_SPEED) {
+      gameSpeed(std::chrono::milliseconds(200)), hardcoreMode(false) {
     initialize();
 }
 
@@ -31,8 +34,19 @@ void Game::run() {
 }
 
 void Game::initialize() {
+    config = GameConfig::defaultConfig();
+    snake = std::make_unique<Snake>(config.width / 2, config.height / 2);
+    food = std::make_unique<Food>(config);
+    renderer = std::make_unique<Renderer>(config);
     loadHighScore();
-    resetGame();
+    initializePortals();
+}
+
+void Game::initializePortals() {
+    // Create two portals at opposite corners
+    portals.clear();
+    portals.push_back({Point(1, 1), Point(config.width - 2, config.height - 2), true});
+    portals.push_back({Point(config.width - 2, config.height - 2), Point(1, 1), true});
 }
 
 void Game::handleInput() {
@@ -63,17 +77,45 @@ void Game::handleInput() {
 }
 
 void Game::update() {
-    if (paused || gameOver) return;
+    if (gameOver || paused) return;
     
+    auto now = std::chrono::steady_clock::now();
+    if (now - lastUpdate < gameSpeed) return;
+    
+    lastUpdate = now;
+    
+    snake->move(snake->getCurrentDirection(), config);
     checkCollisions();
-    if (gameOver) return;
+    checkPortalCollisions();
     
-    handleFoodEaten();
-    updateSpeed();
+    if (snake->getHead() == food->getPosition()) {
+        handleFoodEaten();
+    }
 }
 
 void Game::render() {
-    renderer->render(*snake, *food, score, highScore, paused, gameOver);
+    renderer->clear();
+    
+    // Draw portals
+    for (const auto& portal : portals) {
+        if (portal.active) {
+            renderer->drawPortal(portal.position);
+        }
+    }
+    
+    // Draw snake and food
+    renderer->drawSnake(snake->getBody());
+    renderer->drawFood(food->getPosition());
+    
+    // Draw score and combo
+    renderer->drawScore(score, highScore);
+    renderer->drawCombo(snake->getCurrentCombo());
+    
+    if (hardcoreMode) {
+        renderer->drawHardcoreMode();
+    }
+    
+    renderer->refresh();
 }
 
 void Game::loadHighScore() {
@@ -153,7 +195,7 @@ void Game::resetGame() {
     score = 0;
     gameOver = false;
     paused = false;
-    gameSpeed = INITIAL_SPEED;
+    gameSpeed = std::chrono::milliseconds(200);
     lastUpdate = std::chrono::steady_clock::now();
     
     food->place(snake->getBody(), config);
@@ -170,27 +212,49 @@ void Game::checkCollisions() {
     }
 }
 
-void Game::handleFoodEaten() {
-    if (snake->getHead() == food->getPosition()) {
-        score++;
-        snake->grow();
-        
-        if (config.enableAnimations) {
-            renderer->animateFoodEaten(food->getPosition());
-        }
-        
-        food->place(snake->getBody(), config);
-        
-        // Handle special food effects
-        if (food->isSpecial()) {
-            // TODO: Implement special food effects
+void Game::checkPortalCollisions() {
+    if (snake->isTeleporting()) return;
+    
+    Point head = snake->getHead();
+    for (const auto& portal : portals) {
+        if (portal.active && head == portal.position) {
+            snake->teleportTo(portal.destination);
+            break;
         }
     }
 }
 
-void Game::updateSpeed() {
-    if (score % 5 == 0) {
-        gameSpeed = std::max(MIN_SPEED, gameSpeed - SPEED_INCREMENT);
+void Game::handleFoodEaten() {
+    int basePoints = 10;
+    int comboMultiplier = snake->getComboMultiplier();
+    score += basePoints * comboMultiplier;
+    
+    if (score > highScore) {
+        highScore = score;
+        saveHighScore();
+    }
+    
+    snake->grow();
+    food->respawn(snake->getBody());
+    updateHardcoreSpeed();
+}
+
+void Game::toggleHardcoreMode() {
+    hardcoreMode = !hardcoreMode;
+    if (hardcoreMode) {
+        gameSpeed = std::chrono::milliseconds(200);
+    }
+}
+
+void Game::updateHardcoreSpeed() {
+    if (!hardcoreMode) return;
+    
+    // Increase speed every 3 food items
+    if (snake->getLength() % 3 == 0) {
+        gameSpeed = std::max(
+            std::chrono::milliseconds(50),
+            gameSpeed - std::chrono::milliseconds(10)
+        );
     }
 }
 
